@@ -3115,7 +3115,7 @@ function ChatViewContent(props: ChatViewProps) {
     gitCwd,
     storeNewTerminal,
   ]);
-  const closeTerminal = useCallback(
+  const closeTerminalSession = useCallback(
     (terminalId: string) => {
       if (!activeThreadId || !activeThreadRef) return;
       const fallbackExitWrite = () =>
@@ -3137,7 +3137,6 @@ function ChatViewContent(props: ChatViewProps) {
         }
       })();
       storeCloseTerminal(activeThreadRef, terminalId);
-      setTerminalFocusRequestId((value) => value + 1);
     },
     [
       activeThreadId,
@@ -3147,6 +3146,13 @@ function ChatViewContent(props: ChatViewProps) {
       storeCloseTerminal,
       writeTerminal,
     ],
+  );
+  const closeTerminal = useCallback(
+    (terminalId: string) => {
+      closeTerminalSession(terminalId);
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [closeTerminalSession],
   );
   const runProjectScript = useCallback(
     async (
@@ -3692,12 +3698,12 @@ function ChatViewContent(props: ChatViewProps) {
         }
         if (surface.kind === "terminal") {
           for (const terminalId of surface.terminalIds) {
-            closeTerminal(terminalId);
+            closeTerminalSession(terminalId);
           }
         }
       }
     },
-    [activeThreadRef, activePreviewState.sessions, closePreview, closeTerminal],
+    [activeThreadRef, activePreviewState.sessions, closePreview, closeTerminalSession],
   );
   const syncActivePreviewSurface = useCallback(() => {
     if (!activeThreadRef) return;
