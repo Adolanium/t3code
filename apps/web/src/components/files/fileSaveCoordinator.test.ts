@@ -99,7 +99,7 @@ describe("FileSaveCoordinator", () => {
       confirmedContents: "disk",
       result: failure,
     });
-    expect(onPendingChange.mock.calls.at(-1)).toEqual([false]);
+    expect(onPendingChange).not.toHaveBeenCalledWith(false);
   });
 
   it("does not roll back a newer edit when an older write fails", async () => {
@@ -176,7 +176,7 @@ describe("FileSaveCoordinator", () => {
       confirmedContents: "disk",
       result: failure,
     });
-    expect(onPendingChange.mock.calls.at(-1)).toEqual([false]);
+    expect(onPendingChange).not.toHaveBeenCalledWith(false);
   });
 
   it("does not persist a discarded failed edit on dispose", async () => {

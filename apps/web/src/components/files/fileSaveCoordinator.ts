@@ -100,7 +100,6 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
           confirmedContents: this.lastConfirmedContents,
           result,
         });
-        this.options.onPendingChange(false);
         return;
       }
       if (!this.disposed) this.options.onPendingChange(false);

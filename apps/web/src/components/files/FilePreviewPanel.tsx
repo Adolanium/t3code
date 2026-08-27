@@ -59,7 +59,6 @@ import { fileBreadcrumbs } from "./filePath";
 import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
-  clearProjectFileQueryData,
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
@@ -426,14 +425,16 @@ function useFileSaveCoordinator({
         onConfirmed: (confirmedContents) => {
           confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
         },
-        onRollback: ({ failedContents, result }) => {
+        onRollback: ({ failedContents, confirmedContents, result }) => {
           const overlay = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
           if (overlay !== null && overlay.contents !== failedContents) {
             onPendingChange(relativePath, true);
             return;
           }
-          clearProjectFileQueryData(environmentId, cwd, relativePath);
-          const error = result === null ? null : squashAtomCommandFailure(result);
+          setProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
+          confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
+          onPendingChange(relativePath, false);
+          const error = result?._tag === "Failure" ? squashAtomCommandFailure(result) : null;
           toastManager.add({
             type: "error",
             title: "Could not save file",
