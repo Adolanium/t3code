@@ -97,7 +97,9 @@ function quoteSqliteLiteral(value: string): string {
 export function vacuumDatabaseInto(sourcePath: string, destinationPath: string): void {
   const db = new DatabaseSync(sourcePath, { readOnly: true });
   try {
-    db.exec(`VACUUM INTO ${quoteSqliteLiteral(destinationPath.replaceAll("\\", "/"))}`);
+    const vacuumPath =
+      NodePath.sep === "\\" ? destinationPath.replaceAll("\\", "/") : destinationPath;
+    db.exec(`VACUUM INTO ${quoteSqliteLiteral(vacuumPath)}`);
   } finally {
     db.close();
   }

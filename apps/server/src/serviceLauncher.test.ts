@@ -42,20 +42,23 @@ it("orders exact semantic versions without treating build metadata as precedence
   assert.equal(compareExactServiceVersions("2.0.0+one", "2.0.0+two"), 0);
 });
 
+function seedSqlite(databasePath: string): void {
+  const seed = new DatabaseSync(databasePath);
+  try {
+    seed.exec(
+      "CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL); INSERT INTO kv VALUES ('phase', 'before');",
+    );
+  } finally {
+    seed.close();
+  }
+}
+
 it("snapshots sqlite with VACUUM INTO and no wal sidecar", async () => {
   const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-vacuum-backup-"));
   try {
     const source = NodePath.join(dir, "state.sqlite");
     const destination = NodePath.join(dir, "backup");
-    const seed = new DatabaseSync(source);
-    try {
-      seed.exec(
-        "CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL); INSERT INTO kv VALUES ('phase', 'before');",
-      );
-    } finally {
-      seed.close();
-    }
-
+    seedSqlite(source);
     vacuumDatabaseInto(source, destination);
 
     const restored = new DatabaseSync(destination, { readOnly: true });
@@ -73,6 +76,23 @@ it("snapshots sqlite with VACUUM INTO and no wal sidecar", async () => {
     await NodeFSP.rm(dir, { recursive: true, force: true });
   }
 });
+
+it.skipIf(NodePath.sep === "\\")(
+  "keeps a literal backslash in a POSIX vacuum destination",
+  async () => {
+    const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-vacuum-posix-"));
+    try {
+      const source = NodePath.join(dir, "state.sqlite");
+      const destination = NodePath.join(dir, "back\\up");
+      seedSqlite(source);
+      vacuumDatabaseInto(source, destination);
+      assert.isTrue(NodeFS.existsSync(destination));
+      assert.isFalse(NodeFS.existsSync(NodePath.join(dir, "back", "up")));
+    } finally {
+      await NodeFSP.rm(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 it("rejects contradictory service state", () => {
   assert.isUndefined(
@@ -172,7 +192,7 @@ it.layer(NodeServices.layer)("service state persistence", (it) => {
       const statePath = path.join(root, "runtime", "service-state.json");
       const databasePath = path.join(root, "userdata", "state.sqlite");
       yield* fs.makeDirectory(path.dirname(databasePath), { recursive: true });
-      yield* fs.writeFileString(databasePath, "before trial");
+      seedSqlite(databasePath);
       // @effect-diagnostics-next-line preferSchemaOverJson:off - embeds a path in fake child source.
       const encodedDatabasePath = JSON.stringify(databasePath);
       const childSource = `
@@ -225,7 +245,7 @@ if (context.update?.status === "pending") {
       const statePath = path.join(root, "runtime", "service-state.json");
       const databasePath = path.join(root, "userdata", "state.sqlite");
       yield* fs.makeDirectory(path.dirname(databasePath), { recursive: true });
-      yield* fs.writeFileString(databasePath, "before trial");
+      seedSqlite(databasePath);
       // @effect-diagnostics-next-line preferSchemaOverJson:off - embeds a path in fake child source.
       const encodedDatabasePath = JSON.stringify(databasePath);
       const childSource = `
@@ -279,14 +299,7 @@ if (context.update?.status === "pending") {
       const statePath = path.join(root, "runtime", "service-state.json");
       const databasePath = path.join(root, "userdata", "state.sqlite");
       yield* fs.makeDirectory(path.dirname(databasePath), { recursive: true });
-      const seed = new DatabaseSync(databasePath);
-      try {
-        seed.exec(
-          "CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT NOT NULL); INSERT INTO kv VALUES ('phase', 'before');",
-        );
-      } finally {
-        seed.close();
-      }
+      seedSqlite(databasePath);
       // @effect-diagnostics-next-line preferSchemaOverJson:off - embeds a path in fake child source.
       const encodedDatabasePath = JSON.stringify(databasePath);
       const childSource = `
