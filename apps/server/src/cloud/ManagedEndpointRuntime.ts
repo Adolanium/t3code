@@ -1,6 +1,7 @@
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -78,6 +79,16 @@ export function classifyRelayClientOutput(line: string): "connected" | "warning"
   return /\b(?:ERR|WRN|FTL|PNC)\b/u.test(line) ? "warning" : "debug";
 }
 
+export const RELAY_CLIENT_INITIAL_RESTART_DELAY = Duration.millis(500);
+export const RELAY_CLIENT_MAX_RESTART_DELAY = Duration.seconds(10);
+
+export function relayClientRestartDelay(attempt: number): Duration.Duration {
+  return Duration.min(
+    Duration.times(RELAY_CLIENT_INITIAL_RESTART_DELAY, 2 ** Math.max(0, attempt)),
+    RELAY_CLIENT_MAX_RESTART_DELAY,
+  );
+}
+
 function runtimeConfigKey(config: RelayManagedEndpointRuntimeConfig): string {
   return JSON.stringify({
     providerKind: config.providerKind,
@@ -104,6 +115,7 @@ export const make = Effect.gen(function* () {
   const relayClient = yield* RelayClient.RelayClient;
   const activeRef = yield* Ref.make<ActiveConnector | null>(null);
   const desiredConfigRef = yield* Ref.make<RelayManagedEndpointRuntimeConfig | null>(null);
+  const restartAttemptRef = yield* Ref.make(0);
   const reconcileSemaphore = yield* Semaphore.make(1);
   let reconcileConfig: CloudManagedEndpointRuntime["Service"]["applyConfig"];
 
@@ -115,14 +127,14 @@ export const make = Effect.gen(function* () {
   const superviseConnector = (connector: ActiveConnector) =>
     Effect.gen(function* () {
       const result = yield* Effect.result(connector.child.exitCode);
-      yield* reconcileSemaphore.withPermits(1)(
+      const shouldRestart = yield* reconcileSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const active = yield* Ref.get(activeRef);
           if (
             active?.child.pid !== connector.child.pid ||
             active.configKey !== connector.configKey
           ) {
-            return;
+            return false;
           }
           yield* Ref.set(activeRef, null);
           yield* stopConnector(connector);
@@ -133,7 +145,7 @@ export const make = Effect.gen(function* () {
             desiredConfig.providerKind !== "cloudflare_tunnel" ||
             runtimeConfigKey(desiredConfig) !== connector.configKey
           ) {
-            return;
+            return false;
           }
 
           yield* Effect.logWarning("Relay client exited; restarting", {
@@ -144,6 +156,31 @@ export const make = Effect.gen(function* () {
             tunnelId: connector.config.tunnelId,
             tunnelName: connector.config.tunnelName,
           });
+          return true;
+        }),
+      );
+
+      if (!shouldRestart) {
+        return;
+      }
+
+      const attempt = yield* Ref.getAndUpdate(restartAttemptRef, (current) => current + 1);
+      yield* Effect.sleep(relayClientRestartDelay(attempt));
+
+      yield* reconcileSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const desiredConfig = yield* Ref.get(desiredConfigRef);
+          const active = yield* Ref.get(activeRef);
+          if (active) {
+            return;
+          }
+          if (
+            !desiredConfig ||
+            desiredConfig.providerKind !== "cloudflare_tunnel" ||
+            runtimeConfigKey(desiredConfig) !== connector.configKey
+          ) {
+            return;
+          }
           yield* reconcileConfig(desiredConfig);
         }),
       );
@@ -299,7 +336,10 @@ export const make = Effect.gen(function* () {
   const applyConfig = Effect.fn("CloudManagedEndpointRuntime.applyConfig")(
     (config: RelayManagedEndpointRuntimeConfig | null) =>
       reconcileSemaphore.withPermits(1)(
-        Ref.set(desiredConfigRef, config).pipe(Effect.andThen(reconcileConfig(config))),
+        Ref.set(desiredConfigRef, config).pipe(
+          Effect.andThen(Ref.set(restartAttemptRef, 0)),
+          Effect.andThen(reconcileConfig(config)),
+        ),
       ),
   );
 

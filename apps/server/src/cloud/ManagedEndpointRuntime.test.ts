@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -8,6 +9,7 @@ import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as RelayClient from "@t3tools/shared/relayClient";
 
@@ -80,6 +82,13 @@ function makeHandle(input: {
 }
 
 describe("CloudManagedEndpointRuntime", () => {
+  it("backs off connector restarts exponentially up to 10 seconds", () => {
+    expect(Duration.toMillis(ManagedEndpointRuntime.relayClientRestartDelay(0))).toBe(500);
+    expect(Duration.toMillis(ManagedEndpointRuntime.relayClientRestartDelay(1))).toBe(1_000);
+    expect(Duration.toMillis(ManagedEndpointRuntime.relayClientRestartDelay(2))).toBe(2_000);
+    expect(Duration.toMillis(ManagedEndpointRuntime.relayClientRestartDelay(5))).toBe(10_000);
+  });
+
   it("classifies Cloudflare connection and warning output", () => {
     expect(
       ManagedEndpointRuntime.classifyRelayClientOutput(
@@ -275,12 +284,16 @@ describe("CloudManagedEndpointRuntime", () => {
         tunnelId: "tunnel-1",
       });
       yield* Deferred.succeed(firstExit, ChildProcessSpawner.ExitCode(1));
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(499));
+      expect(spawned).toEqual([400]);
+      yield* TestClock.adjust(Duration.millis(1));
       yield* Deferred.await(secondSpawned);
 
       expect(started).toMatchObject({ status: "running", pid: 400 });
       expect(spawned).toEqual([400, 401]);
       expect(killed).toEqual([400]);
-    }),
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("serializes concurrent connector config changes", () =>
