@@ -2,20 +2,25 @@ import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
 export interface FileSaveCoordinatorOptions<A, E> {
   readonly debounceMs: number;
+  readonly initialContents: string;
   readonly persist: (contents: string) => Promise<AtomCommandResult<A, E>>;
   readonly onPendingChange: (pending: boolean) => void;
   readonly onConfirmed: (contents: string) => void;
+  readonly onRollback: (contents: string) => void;
 }
 
 export class FileSaveCoordinator<A = unknown, E = unknown> {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private latestContents = "";
+  private lastConfirmedContents: string;
   private latestRevision = 0;
   private lastChangeAt = 0;
   private saving = false;
   private disposed = false;
 
-  constructor(private readonly options: FileSaveCoordinatorOptions<A, E>) {}
+  constructor(private readonly options: FileSaveCoordinatorOptions<A, E>) {
+    this.lastConfirmedContents = options.initialContents;
+  }
 
   change(contents: string): void {
     this.latestContents = contents;
@@ -51,15 +56,24 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.saving = true;
     const contents = this.latestContents;
     const revision = this.latestRevision;
-    const result = await this.options.persist(contents);
-    const succeeded = result._tag === "Success";
-    if (succeeded) {
-      this.options.onConfirmed(contents);
+    let succeeded = false;
+    try {
+      const result = await this.options.persist(contents);
+      succeeded = result._tag === "Success";
+      if (succeeded) {
+        this.lastConfirmedContents = contents;
+        this.options.onConfirmed(contents);
+      }
+    } catch {
+      succeeded = false;
     }
 
     this.saving = false;
     if (revision === this.latestRevision) {
-      if (succeeded) this.options.onPendingChange(false);
+      if (!succeeded) {
+        this.options.onRollback(this.lastConfirmedContents);
+      }
+      this.options.onPendingChange(false);
       return;
     }
 

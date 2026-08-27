@@ -404,16 +404,18 @@ function useFileSaveCoordinator({
   environmentId,
   cwd,
   relativePath,
+  contents,
   onPendingChange,
 }: Pick<
   EditableFileSurfaceProps,
-  "environmentId" | "cwd" | "relativePath" | "onPendingChange"
+  "environmentId" | "cwd" | "relativePath" | "contents" | "onPendingChange"
 >): FileSaveCoordinator {
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
   const coordinator = useMemo(
     () =>
       new FileSaveCoordinator({
         debounceMs: FILE_SAVE_DEBOUNCE_MS,
+        initialContents: contents,
         onPendingChange: (pending) => onPendingChange(relativePath, pending),
         persist: (nextContents) =>
           writeFile({
@@ -423,7 +425,17 @@ function useFileSaveCoordinator({
         onConfirmed: (confirmedContents) => {
           confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
         },
+        onRollback: (confirmedContents) => {
+          setProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
+          toastManager.add({
+            type: "error",
+            title: "Could not save file",
+            description: relativePath,
+          });
+        },
       }),
+    // initialContents is the loaded file at mount. Overlay edits must not
+    // rebuild the coordinator or last-confirmed state resets on every keystroke.
     [cwd, environmentId, onPendingChange, relativePath, writeFile],
   );
 
@@ -461,6 +473,7 @@ function EditableFileSurface({
     environmentId,
     cwd,
     relativePath,
+    contents,
     onPendingChange,
   });
   const editor = useMemo(
@@ -722,6 +735,7 @@ function RenderedMarkdownSurface({
     environmentId,
     cwd,
     relativePath,
+    contents,
     onPendingChange,
   });
 
