@@ -123,7 +123,9 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
   const stubBackendInstance: DesktopBackendPool.DesktopBackendInstance = {
     id: DesktopBackendPool.PRIMARY_INSTANCE_ID,
     label: Effect.succeed("Windows"),
-    start: Effect.void,
+    start: Effect.sync(() => {
+      installSteps.push("startBackend");
+    }),
     stop: () => options.stopBackend ?? Effect.void,
     currentConfig: Effect.succeed(Option.none()),
     snapshot: Effect.succeed({
@@ -774,7 +776,7 @@ describe("DesktopUpdates", () => {
         assert.isTrue(result.accepted);
         assert.isFalse(result.completed);
         assert.isFalse(yield* Ref.get(desktopState.quitting));
-        assert.deepEqual(harness.installSteps, ["quitAndInstall"]);
+        assert.deepEqual(harness.installSteps, ["quitAndInstall", "startBackend"]);
 
         const failedState = yield* updates.getState;
         assert.equal(failedState.status, "downloaded");

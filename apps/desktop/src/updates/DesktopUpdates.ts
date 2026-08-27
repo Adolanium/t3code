@@ -483,6 +483,11 @@ export const make = Effect.gen(function* () {
 
     yield* Ref.set(desktopState.quitting, true);
 
+    const instances = yield* pool.list;
+    const restartStoppedBackends = Effect.forEach(instances, (instance) => instance.start, {
+      concurrency: "unbounded",
+    }).pipe(Effect.asVoid);
+
     return yield* Effect.gen(function* () {
       // Stop every backend in the pool, not just the primary. With
       // parallel WSL + Windows backends, leaving the WSL instance up
@@ -491,7 +496,6 @@ export const make = Effect.gen(function* () {
       // WSL child gets hard-killed by the OS instead of receiving
       // SIGTERM + grace. Stops run concurrently with the same 5s
       // budget the primary had on its own.
-      const instances = yield* pool.list;
       yield* Effect.forEach(
         instances,
         (instance) => instance.stop({ timeout: Duration.seconds(5) }),
@@ -510,6 +514,7 @@ export const make = Effect.gen(function* () {
         ElectronUpdaterQuitAndInstallError: Effect.fn("desktop.updates.handleInstallFailure")(
           function* (error) {
             yield* resetInstallAction;
+            yield* restartStoppedBackends;
             yield* updateState((current) =>
               reduceDesktopUpdateStateOnInstallFailure(current, error.message),
             );
@@ -530,6 +535,7 @@ export const make = Effect.gen(function* () {
             return yield* Effect.failCause(cause);
           }
           yield* resetInstallAction;
+          yield* restartStoppedBackends;
           const error = new DesktopUpdateUnexpectedActionError({ action: "install", cause });
           yield* updateState((current) =>
             reduceDesktopUpdateStateOnInstallFailure(current, error.message),
