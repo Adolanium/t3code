@@ -429,6 +429,7 @@ function useFileSaveCoordinator({
         onRollback: ({ failedContents, result }) => {
           const overlay = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
           if (overlay !== null && overlay.contents !== failedContents) {
+            onPendingChange(relativePath, true);
             return;
           }
           clearProjectFileQueryData(environmentId, cwd, relativePath);

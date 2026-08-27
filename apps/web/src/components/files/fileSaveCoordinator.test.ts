@@ -151,11 +151,12 @@ describe("FileSaveCoordinator", () => {
     expect(onPendingChange).not.toHaveBeenCalledWith(false);
   });
 
-  it("does not roll back or clear pending after dispose", async () => {
+  it("still rolls back a failed write that finishes after dispose", async () => {
     vi.useFakeTimers();
     const write = deferred();
     const onRollback = vi.fn();
     const onPendingChange = vi.fn();
+    const failure = AsyncResult.failure(Cause.fail(new Error("write failed")));
     const coordinator = new FileSaveCoordinator({
       debounceMs: 500,
       initialContents: "disk",
@@ -168,10 +169,14 @@ describe("FileSaveCoordinator", () => {
     coordinator.change("latest");
     await vi.advanceTimersByTimeAsync(500);
     coordinator.dispose();
-    write.resolve(AsyncResult.failure(Cause.fail(new Error("write failed"))));
+    write.resolve(failure);
     await Promise.resolve();
-    expect(onRollback).not.toHaveBeenCalled();
-    expect(onPendingChange).not.toHaveBeenCalledWith(false);
+    expect(onRollback).toHaveBeenCalledWith({
+      failedContents: "latest",
+      confirmedContents: "disk",
+      result: failure,
+    });
+    expect(onPendingChange.mock.calls.at(-1)).toEqual([false]);
   });
 
   it("does not persist a discarded failed edit on dispose", async () => {

@@ -95,14 +95,12 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
       if (!succeeded) {
         this.latestRevision = 0;
         this.latestContents = this.lastConfirmedContents;
-        if (!this.disposed) {
-          this.options.onRollback({
-            failedContents: contents,
-            confirmedContents: this.lastConfirmedContents,
-            result,
-          });
-          this.options.onPendingChange(false);
-        }
+        this.options.onRollback({
+          failedContents: contents,
+          confirmedContents: this.lastConfirmedContents,
+          result,
+        });
+        this.options.onPendingChange(false);
         return;
       }
       if (!this.disposed) this.options.onPendingChange(false);
