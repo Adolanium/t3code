@@ -497,11 +497,13 @@ export const make = Effect.gen(function* () {
         (instance) => instance.stop({ timeout: Duration.seconds(5) }),
         { concurrency: "unbounded" },
       );
-      yield* electronWindow.destroyAll;
       yield* electronUpdater.quitAndInstall({
         isSilent: true,
         isForceRunAfter: true,
       });
+      // Close windows only after quitAndInstall has started. If install
+      // fails, the user still has a window.
+      yield* electronWindow.destroyAll;
       return { accepted: true, completed: false };
     }).pipe(
       Effect.catchTags({
