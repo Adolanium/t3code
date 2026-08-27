@@ -227,4 +227,35 @@ describe("FileSaveCoordinator", () => {
       }),
     );
   });
+
+  it("lets idle refreshes update the baseline after a successful save", async () => {
+    vi.useFakeTimers();
+    const persist = vi
+      .fn<(contents: string) => Promise<AtomCommandResult<void, never>>>()
+      .mockResolvedValueOnce(AsyncResult.success(undefined))
+      .mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("write failed"))));
+    const onRollback = vi.fn();
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      initialContents: "disk",
+      persist,
+      onPendingChange: vi.fn(),
+      onConfirmed: vi.fn(),
+      onRollback,
+    });
+
+    coordinator.change("saved");
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    coordinator.syncConfirmed("refreshed");
+    coordinator.change("latest");
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    expect(onRollback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failedContents: "latest",
+        confirmedContents: "refreshed",
+      }),
+    );
+  });
 });

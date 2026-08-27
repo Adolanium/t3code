@@ -102,6 +102,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
         });
         return;
       }
+      this.latestRevision = 0;
       if (!this.disposed) this.options.onPendingChange(false);
       return;
     }
