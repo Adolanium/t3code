@@ -3623,17 +3623,12 @@ function ChatViewContent(props: ChatViewProps) {
   const closePanelTerminal = useCallback(
     (terminalId: string) => {
       if (!activeThreadRef || activeRightPanelSurface?.kind !== "terminal") return;
-      void closeTerminalMutation({
-        environmentId: activeThreadRef.environmentId,
-        input: { threadId: activeThreadRef.threadId, terminalId, deleteHistory: true },
-      });
-      storeCloseTerminal(activeThreadRef, terminalId);
+      closeTerminal(terminalId);
       useRightPanelStore
         .getState()
         .closeTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId);
-      setTerminalFocusRequestId((value) => value + 1);
     },
-    [activeRightPanelSurface, activeThreadRef, closeTerminalMutation, storeCloseTerminal],
+    [activeRightPanelSurface, activeThreadRef, closeTerminal],
   );
   const requestCloseTerminal = useCallback(
     (terminalId: string) => {
@@ -3697,22 +3692,12 @@ function ChatViewContent(props: ChatViewProps) {
         }
         if (surface.kind === "terminal") {
           for (const terminalId of surface.terminalIds) {
-            storeCloseTerminal(activeThreadRef, terminalId);
-            void closeTerminalMutation({
-              environmentId: activeThreadRef.environmentId,
-              input: { threadId: activeThreadRef.threadId, terminalId, deleteHistory: true },
-            });
+            closeTerminal(terminalId);
           }
         }
       }
     },
-    [
-      activeThreadRef,
-      activePreviewState.sessions,
-      closePreview,
-      closeTerminalMutation,
-      storeCloseTerminal,
-    ],
+    [activeThreadRef, activePreviewState.sessions, closePreview, closeTerminal],
   );
   const syncActivePreviewSurface = useCallback(() => {
     if (!activeThreadRef) return;
