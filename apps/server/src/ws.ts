@@ -1465,6 +1465,7 @@ const makeWsRpcLayer = (
               const liveBuffer = yield* Queue.unbounded<OrchestrationThreadStreamItem>();
               yield* Effect.forkScoped(
                 liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
+                { startImmediately: true },
               );
               const bufferedLiveStream = Stream.fromQueue(liveBuffer);
 
