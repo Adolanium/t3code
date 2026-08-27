@@ -59,6 +59,7 @@ import { fileBreadcrumbs } from "./filePath";
 import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
+  clearProjectFileQueryData,
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
@@ -425,12 +426,17 @@ function useFileSaveCoordinator({
         onConfirmed: (confirmedContents) => {
           confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
         },
-        onRollback: (confirmedContents) => {
-          setProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
+        onRollback: ({ failedContents, result }) => {
+          const overlay = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
+          if (overlay !== null && overlay.contents !== failedContents) {
+            return;
+          }
+          clearProjectFileQueryData(environmentId, cwd, relativePath);
+          const error = result === null ? null : squashAtomCommandFailure(result);
           toastManager.add({
             type: "error",
             title: "Could not save file",
-            description: relativePath,
+            description: error instanceof Error ? error.message : relativePath,
           });
         },
       }),
@@ -439,6 +445,9 @@ function useFileSaveCoordinator({
     [cwd, environmentId, onPendingChange, relativePath, writeFile],
   );
 
+  useEffect(() => {
+    coordinator.syncConfirmed(contents);
+  }, [contents, coordinator]);
   useEffect(() => () => coordinator.dispose(), [coordinator]);
   return coordinator;
 }

@@ -81,12 +81,11 @@ describe("FileSaveCoordinator", () => {
     vi.useFakeTimers();
     const onPendingChange = vi.fn();
     const onRollback = vi.fn();
+    const failure = AsyncResult.failure(Cause.fail(new Error("write failed")));
     const coordinator = new FileSaveCoordinator({
       debounceMs: 500,
       initialContents: "disk",
-      persist: vi
-        .fn()
-        .mockResolvedValue(AsyncResult.failure(Cause.fail(new Error("write failed")))),
+      persist: vi.fn().mockResolvedValue(failure),
       onPendingChange,
       onConfirmed: vi.fn(),
       onRollback,
@@ -95,7 +94,11 @@ describe("FileSaveCoordinator", () => {
     coordinator.change("latest");
     await vi.advanceTimersByTimeAsync(500);
     await Promise.resolve();
-    expect(onRollback).toHaveBeenCalledWith("disk");
+    expect(onRollback).toHaveBeenCalledWith({
+      failedContents: "latest",
+      confirmedContents: "disk",
+      result: failure,
+    });
     expect(onPendingChange.mock.calls.at(-1)).toEqual([false]);
   });
 
@@ -126,5 +129,97 @@ describe("FileSaveCoordinator", () => {
     expect(onRollback).not.toHaveBeenCalled();
     expect(persist).toHaveBeenLastCalledWith("latest");
     expect(onConfirmed).toHaveBeenCalledWith("latest");
+  });
+
+  it("does not roll back an interrupted write", async () => {
+    vi.useFakeTimers();
+    const onRollback = vi.fn();
+    const onPendingChange = vi.fn();
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      initialContents: "disk",
+      persist: vi.fn().mockResolvedValue(AsyncResult.failure(Cause.interrupt(1))),
+      onPendingChange,
+      onConfirmed: vi.fn(),
+      onRollback,
+    });
+
+    coordinator.change("latest");
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    expect(onRollback).not.toHaveBeenCalled();
+    expect(onPendingChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("does not roll back or clear pending after dispose", async () => {
+    vi.useFakeTimers();
+    const write = deferred();
+    const onRollback = vi.fn();
+    const onPendingChange = vi.fn();
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      initialContents: "disk",
+      persist: vi.fn().mockReturnValue(write.promise),
+      onPendingChange,
+      onConfirmed: vi.fn(),
+      onRollback,
+    });
+
+    coordinator.change("latest");
+    await vi.advanceTimersByTimeAsync(500);
+    coordinator.dispose();
+    write.resolve(AsyncResult.failure(Cause.fail(new Error("write failed"))));
+    await Promise.resolve();
+    expect(onRollback).not.toHaveBeenCalled();
+    expect(onPendingChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("does not persist a discarded failed edit on dispose", async () => {
+    vi.useFakeTimers();
+    const persist = vi
+      .fn<(contents: string) => Promise<AtomCommandResult<void, never>>>()
+      .mockResolvedValue(AsyncResult.failure(Cause.fail(new Error("write failed"))));
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      initialContents: "disk",
+      persist,
+      onPendingChange: vi.fn(),
+      onConfirmed: vi.fn(),
+      onRollback: vi.fn(),
+    });
+
+    coordinator.change("latest");
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    expect(persist).toHaveBeenCalledOnce();
+    coordinator.dispose();
+    await Promise.resolve();
+    expect(persist).toHaveBeenCalledOnce();
+  });
+
+  it("uses a later confirmed refresh as the rollback baseline", async () => {
+    vi.useFakeTimers();
+    const onRollback = vi.fn();
+    const coordinator = new FileSaveCoordinator({
+      debounceMs: 500,
+      initialContents: "disk",
+      persist: vi
+        .fn()
+        .mockResolvedValue(AsyncResult.failure(Cause.fail(new Error("write failed")))),
+      onPendingChange: vi.fn(),
+      onConfirmed: vi.fn(),
+      onRollback,
+    });
+
+    coordinator.syncConfirmed("refreshed");
+    coordinator.change("latest");
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    expect(onRollback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failedContents: "latest",
+        confirmedContents: "refreshed",
+      }),
+    );
   });
 });

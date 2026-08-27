@@ -1,4 +1,13 @@
-import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
+import {
+  type AtomCommandResult,
+  isAtomCommandInterrupted,
+} from "@t3tools/client-runtime/state/runtime";
+
+export interface FileSaveRollback<A = unknown, E = unknown> {
+  readonly failedContents: string;
+  readonly confirmedContents: string;
+  readonly result: AtomCommandResult<A, E> | null;
+}
 
 export interface FileSaveCoordinatorOptions<A, E> {
   readonly debounceMs: number;
@@ -6,7 +15,7 @@ export interface FileSaveCoordinatorOptions<A, E> {
   readonly persist: (contents: string) => Promise<AtomCommandResult<A, E>>;
   readonly onPendingChange: (pending: boolean) => void;
   readonly onConfirmed: (contents: string) => void;
-  readonly onRollback: (contents: string) => void;
+  readonly onRollback: (rollback: FileSaveRollback<A, E>) => void;
 }
 
 export class FileSaveCoordinator<A = unknown, E = unknown> {
@@ -28,6 +37,12 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.lastChangeAt = Date.now();
     this.options.onPendingChange(true);
     this.schedule(this.options.debounceMs);
+  }
+
+  syncConfirmed(contents: string): void {
+    if (this.latestRevision === 0 && !this.saving) {
+      this.lastConfirmedContents = contents;
+    }
   }
 
   dispose(): void {
@@ -56,24 +71,41 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.saving = true;
     const contents = this.latestContents;
     const revision = this.latestRevision;
+    let result: AtomCommandResult<A, E> | null = null;
     let succeeded = false;
+    let interrupted = false;
     try {
-      const result = await this.options.persist(contents);
+      result = await this.options.persist(contents);
       succeeded = result._tag === "Success";
+      interrupted = !succeeded && isAtomCommandInterrupted(result);
       if (succeeded) {
         this.lastConfirmedContents = contents;
         this.options.onConfirmed(contents);
       }
     } catch {
       succeeded = false;
+      interrupted = false;
     }
 
     this.saving = false;
     if (revision === this.latestRevision) {
-      if (!succeeded) {
-        this.options.onRollback(this.lastConfirmedContents);
+      if (interrupted) {
+        return;
       }
-      this.options.onPendingChange(false);
+      if (!succeeded) {
+        this.latestRevision = 0;
+        this.latestContents = this.lastConfirmedContents;
+        if (!this.disposed) {
+          this.options.onRollback({
+            failedContents: contents,
+            confirmedContents: this.lastConfirmedContents,
+            result,
+          });
+          this.options.onPendingChange(false);
+        }
+        return;
+      }
+      if (!this.disposed) this.options.onPendingChange(false);
       return;
     }
 
